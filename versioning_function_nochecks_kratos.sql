@@ -7,6 +7,7 @@ DECLARE
   history_table text;
   manipulate jsonb;
   version_column_name text;
+  sync_column_name text;
   commonColumns text[];
   time_stamp_to_use timestamptz;
   range_lower timestamptz;
@@ -19,14 +20,8 @@ BEGIN
   history_table := TG_ARGV[0];
   sys_period := 'timeValid';
   version_column_name := 'version';
+  sync_column_name := 'timeSynced';
   time_stamp_to_use := CURRENT_TIMESTAMP;
-
-  -- ignore unchanged values
-  IF TG_OP = 'UPDATE' THEN
-    IF NEW IS NOT DISTINCT FROM OLD THEN
-      RETURN OLD;
-    END IF;
-  END IF;
 
   IF TG_OP = 'INSERT' THEN
     existing_version := 0;
@@ -80,7 +75,8 @@ BEGIN
         USING OLD
         INTO oldVersion;
       IF newVersion IS NOT DISTINCT FROM oldVersion THEN
-        RETURN NEW;
+        manipulate := jsonb_set('{}'::jsonb, ('{' || sync_column_name || '}')::text[], to_jsonb(time_stamp_to_use));
+        RETURN jsonb_populate_record(NEW, manipulate);
       END IF;
     END IF;
 
@@ -100,9 +96,8 @@ BEGIN
 
   IF TG_OP = 'UPDATE' OR TG_OP = 'INSERT' THEN
     manipulate := jsonb_set('{}'::jsonb, ('{' || sys_period || '}')::text[], to_jsonb(tstzrange(time_stamp_to_use, null, '[)')));
-
     manipulate := jsonb_set(manipulate, ('{' || version_column_name || '}')::text[], to_jsonb(existing_version + 1));
-
+    manipulate := jsonb_set(manipulate, ('{' || sync_column_name || '}')::text[], to_jsonb(time_stamp_to_use));
     RETURN jsonb_populate_record(NEW, manipulate);
   END IF;
 
